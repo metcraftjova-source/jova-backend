@@ -7,6 +7,7 @@ import { connectDB } from './db.js';
 import Contact from './models/Contact.js';
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5001;
 
 // TEMPORARY DEBUG — remove once SMTP is working
