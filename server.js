@@ -28,9 +28,34 @@ connectDB().catch((err) => {
 
 // ---- Middleware ----
 app.use(express.json());
+
+// CORS: FRONTEND_ORIGIN only ever matched ONE exact origin string, which is
+// why switching between "jovametcraft.com" and "www.jovametcraft.com" (or
+// testing from localhost) kept breaking. Build a small allow-list instead —
+// the www and non-www versions of FRONTEND_ORIGIN, plus localhost for local
+// dev — and match the incoming request against it.
+const configuredOrigin = process.env.FRONTEND_ORIGIN || '';
+const allowedOrigins = new Set(
+  [
+    configuredOrigin,
+    configuredOrigin.replace('://www.', '://'), // strip www if present
+    configuredOrigin.replace('://', '://www.'), // add www if missing
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ].filter(Boolean)
+);
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_ORIGIN || '*', // set to your deployed frontend URL in prod
+    origin(origin, callback) {
+      // Requests with no Origin header (curl, server-to-server, some
+      // mobile webviews) are allowed through — there's no origin to check.
+      if (!origin || allowedOrigins.has(origin)) {
+        return callback(null, true);
+      }
+      console.warn('CORS blocked request from origin:', origin);
+      return callback(new Error('Not allowed by CORS'));
+    },
   })
 );
 
