@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 130" width="360" height="130">
+  <rect width="360" height="130" fill="white"/>
+  <!-- Outer box -->
+  <rect x="10" y="12" width="80" height="106" rx="4" ry="4" fill="none" stroke="#1B3A6B" stroke-width="4"/>
+  <!-- Inner box -->
+  <rect x="20" y="22" width="60" height="86" rx="2" ry="2" fill="none" stroke="#1B3A6B" stroke-width="2.5"/>
+  <!-- S letter -->
+  <text x="50" y="66" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="28" font-weight="900" fill="#1B3A6B">S</text>
+  <!-- P letter -->
+  <text x="50" y="96" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="28" font-weight="900" fill="#1B3A6B">P</text>
+  <!-- Company name -->
+  <text x="220" y="48" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#1B3A6B">Sivanandha Pipe</text>
+  <text x="220" y="72" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#1B3A6B">Fittings Limited</text>
+</svg>

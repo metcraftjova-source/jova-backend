@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 130" width="380" height="130">
+  <rect width="380" height="130" fill="white"/>
+  <!-- Red square box with S arrow logo -->
+  <rect x="10" y="20" width="90" height="90" rx="4" ry="4" fill="#CC2200"/>
+  <!-- Stylized S / arrow shape inside red box -->
+  <path d="M30 38 L70 38 L70 55 L35 55 L35 72 L75 72 L75 92 L25 92 L25 75 L62 75 L62 58 L25 58 Z" fill="white"/>
+  <!-- Southern large bold text -->
+  <text x="238" y="60" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="40" font-weight="900" fill="#1A1A1A">Southern</text>
+  <!-- Lubrication text -->
+  <text x="238" y="95" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#444444">Lubrication ( Pvt ) Ltd.</text>
+</svg>
