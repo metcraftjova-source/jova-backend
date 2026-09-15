@@ -15,15 +15,27 @@ export default function ImageSequenceHero() {
   const playhead = useRef({ t: 0 });
 
   const hasSignaledReady = useRef(false);
+  const blobUrlRef = useRef(null);
 
   // Wait for an actual DECODED FRAME (readyState >= 2 / 'loadeddata'), not
   // just metadata (readyState >= 1 / 'loadedmetadata') — metadata alone
   // only gives duration/dimensions, so drawImage() could still paint a
   // blank canvas even after this fires if we don't wait for real pixel
   // data. Matches the same fix applied to the Home page Hero.
+  //
+  // The video is also fetched into memory first and played from a local
+  // blob: URL rather than the network path. Without this, every
+  // scroll-driven `currentTime` seek in the scrub handler below (fired on
+  // basically every animation frame while scrolling) forces the browser
+  // to issue a fresh HTTP range request for the bytes at that timestamp —
+  // and since the next frame immediately seeks again, each request gets
+  // aborted before it finishes, producing a request storm instead of
+  // smooth scrubbing. Seeking into an in-memory blob is instant and needs
+  // no network at all.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    let cancelled = false;
 
     const markReady = () => {
       setVideoReady(true);
@@ -36,12 +48,29 @@ export default function ImageSequenceHero() {
       }
     };
 
-    if (video.readyState >= 2) {
-      markReady();
-      return;
-    }
-    video.addEventListener('loadeddata', markReady);
-    return () => video.removeEventListener('loadeddata', markReady);
+    fetch(aboutHeroVideoSrc)
+      .then((res) => res.blob())
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        blobUrlRef.current = url;
+        video.addEventListener('loadeddata', markReady, { once: true });
+        video.src = url;
+        video.load();
+      })
+      .catch((err) => {
+        console.error('Failed to preload hero video, falling back to direct src', err);
+        video.addEventListener('loadeddata', markReady, { once: true });
+        video.src = aboutHeroVideoSrc;
+      });
+
+    return () => {
+      cancelled = true;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
   }, []);
 
   const text2Ref = useRef(null);
@@ -141,7 +170,6 @@ export default function ImageSequenceHero() {
     <div ref={containerRef} className="relative w-full h-dvh bg-[#050B16] overflow-hidden">
       <video
         ref={videoRef}
-        src={aboutHeroVideoSrc}
         muted
         playsInline
         preload="auto"

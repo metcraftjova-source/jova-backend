@@ -81,12 +81,24 @@ const ShieldMark = () => (
   </svg>
 );
 
+const N = navItems.length; // 5 — the spark visits N evenly-spaced stops
+const PERIOD_MS = 7000; // one full lap, top to bottom
+const DWELL_FRAC = 0.62; // fraction of each stop's time-slice spent "arrived" vs traveling to the next
+
 const PremiumSidebar = () => {
   const { pathname } = useLocation();
   const isActive = (to) => (to === '/' ? pathname === '/' : pathname.startsWith(to));
 
   const [isIdle, setIsIdle] = useState(true);
   const idleTimerRef = useRef(null);
+
+  const asideRef = useRef(null);
+  const railRef = useRef(null);
+  const sparkRef = useRef(null);
+  const itemRefs = useRef([]);
+  const igniteRefs = useRef([]);
+  const stopsRef = useRef([]); // measured pixel Y of each icon's center, top to bottom
+  const litIndexRef = useRef(-1); // which icon is currently lit, so DOM is only touched on change
 
   useEffect(() => {
     const markScrolling = () => {
@@ -106,8 +118,101 @@ const PremiumSidebar = () => {
     };
   }, []);
 
+  // Measure each icon's real vertical center relative to the sidebar, so
+  // the rail and the traveling dot line up with Home/About/Product/
+  // Services/Contact exactly as laid out — not a guessed fixed spacing
+  // that drifts whenever the flex layout sizes differently.
+  useEffect(() => {
+    const measure = () => {
+      const asideTop = asideRef.current?.getBoundingClientRect().top ?? 0;
+      stopsRef.current = itemRefs.current.map((el) => {
+        if (!el) return 0;
+        const r = el.getBoundingClientRect();
+        return r.top - asideTop + r.height / 2;
+      });
+
+      // Draw the rail spanning exactly from the first to the last icon
+      // center, instead of a hardcoded height.
+      if (railRef.current && stopsRef.current.length > 1) {
+        const first = stopsRef.current[0];
+        const last = stopsRef.current[stopsRef.current.length - 1];
+        railRef.current.style.top = `${first}px`;
+        railRef.current.style.height = `${last - first}px`;
+      }
+    };
+
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  // Drives only the spark dot's position along the rail — it travels
+  // down through the REAL measured icon positions in order (Home first,
+  // Contact last), dwells briefly at each one, then continues. It does
+  // not trigger any glow/ignite effect on the icons it passes.
+  useEffect(() => {
+    let rafId;
+
+    const tick = (now) => {
+      const stops = stopsRef.current;
+      if (stops.length < 2 || !sparkRef.current) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+
+      const n = stops.length;
+      const cycle = (now % PERIOD_MS) / PERIOD_MS; // 0..1 over one lap
+      const stopSpan = 1 / n;
+      const stopIndex = Math.min(n - 1, Math.floor(cycle / stopSpan));
+      const localT = (cycle - stopIndex * stopSpan) / stopSpan; // 0..1 within this stop's slice
+
+      const isDwelling = localT < DWELL_FRAC;
+      const isLastStop = stopIndex === n - 1;
+
+      let topPx;
+      let opacity = 1;
+
+      if (isDwelling) {
+        topPx = stops[stopIndex];
+      } else if (isLastStop) {
+        // Reached Contact and dwelled — fade out, then the next lap
+        // restarts back at Home.
+        topPx = stops[n - 1];
+        const fadeT = (localT - DWELL_FRAC) / (1 - DWELL_FRAC);
+        opacity = 1 - fadeT;
+      } else {
+        // Traveling from this stop to the next one, in order.
+        const travelT = (localT - DWELL_FRAC) / (1 - DWELL_FRAC);
+        topPx = stops[stopIndex] + (stops[stopIndex + 1] - stops[stopIndex]) * travelT;
+      }
+
+      sparkRef.current.style.top = `${topPx}px`;
+      sparkRef.current.style.opacity = opacity;
+
+      // Glow the icon the dot is currently sitting on — and only that
+      // one. Driven from the same real dwell state as the dot's own
+      // position, so the two can never drift out of sync.
+      const nextLit = isDwelling ? stopIndex : -1;
+      if (nextLit !== litIndexRef.current) {
+        if (litIndexRef.current >= 0 && igniteRefs.current[litIndexRef.current]) {
+          igniteRefs.current[litIndexRef.current].classList.remove('is-lit');
+        }
+        if (nextLit >= 0 && igniteRefs.current[nextLit]) {
+          igniteRefs.current[nextLit].classList.add('is-lit');
+        }
+        litIndexRef.current = nextLit;
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
   return (
     <aside
+      ref={asideRef}
       className={`hidden lg:flex fixed left-0 top-0 h-screen w-[104px] z-50 flex-col items-center py-6 transition-all duration-500 ease-[cubic-bezier(0.34,1.2,0.64,1)] ${
         isIdle ? 'opacity-100 translate-x-0 pointer-events-auto' : 'opacity-0 -translate-x-full pointer-events-none'
       }`}
@@ -182,40 +287,23 @@ const PremiumSidebar = () => {
           animation: sb-logo-pulse 3s ease-in-out infinite;
         }
 
-        /* ===== Traveling current — same "energy flowing through the
-           system" language as the Tehter root diagram, brought into the
-           sidebar. A spark runs down the spine connecting every icon,
-           igniting each one in sequence, then loops. With 5 evenly-spaced
-           icons (72px pitch), the spark's stops land exactly on 0/25/50/
-           75/100% of the rail. ===== */
+        /* ===== Traveling current — the spark runs down the spine
+           connecting every icon and dwells briefly at each stop, purely
+           as a decorative "energy flowing through the system" cue. It
+           does NOT trigger any glow/ignite change on the icons it visits
+           — their appearance is unaffected as the dot passes. ===== */
         .sb-rail {
           position: absolute;
           left: 50%;
-          top: 28px;
           width: 2px;
-          height: 288px;
           transform: translateX(-50%);
           background: linear-gradient(180deg, rgba(217,162,92,0.05), rgba(217,162,92,0.18), rgba(217,162,92,0.05));
           z-index: 0;
         }
-
-        @keyframes sb-spark-travel {
-          0%   { top: 0%;   opacity: 0; }
-          3%   { opacity: 1; }
-          18%  { top: 0%;   opacity: 1; }
-          23%  { top: 25%; }
-          38%  { top: 25%; }
-          43%  { top: 50%; }
-          58%  { top: 50%; }
-          63%  { top: 75%; }
-          78%  { top: 75%; }
-          83%  { top: 100%; }
-          95%  { top: 100%; opacity: 1; }
-          100% { top: 100%; opacity: 0; }
-        }
         .sb-spark {
           position: absolute;
           left: 50%;
+          top: 0px;
           width: 6px;
           height: 6px;
           margin-left: -3px;
@@ -223,32 +311,32 @@ const PremiumSidebar = () => {
           border-radius: 999px;
           background: var(--bronze-bright, #D9A25C);
           box-shadow: 0 0 8px 2px rgba(217,162,92,0.9), 0 0 16px 4px rgba(217,162,92,0.4);
-          animation: sb-spark-travel 7s ease-in-out infinite;
           z-index: 1;
         }
 
-        /* Per-icon ignite windows — each fires exactly when the spark
-           above reaches that node, then dims until the next lap. */
-        @keyframes sb-ignite-0 { 0%,3%{opacity:.35;transform:scale(1);} 8%{opacity:1;transform:scale(1.15);} 18%{opacity:.35;transform:scale(1);} 100%{opacity:.35;transform:scale(1);} }
-        @keyframes sb-ignite-1 { 0%,20%{opacity:.35;transform:scale(1);} 28%{opacity:1;transform:scale(1.15);} 38%{opacity:.35;transform:scale(1);} 100%{opacity:.35;transform:scale(1);} }
-        @keyframes sb-ignite-2 { 0%,40%{opacity:.35;transform:scale(1);} 48%{opacity:1;transform:scale(1.15);} 58%{opacity:.35;transform:scale(1);} 100%{opacity:.35;transform:scale(1);} }
-        @keyframes sb-ignite-3 { 0%,60%{opacity:.35;transform:scale(1);} 68%{opacity:1;transform:scale(1.15);} 78%{opacity:.35;transform:scale(1);} 100%{opacity:.35;transform:scale(1);} }
-        @keyframes sb-ignite-4 { 0%,80%{opacity:.35;transform:scale(1);} 88%{opacity:1;transform:scale(1.15);} 95%{opacity:.35;transform:scale(1);} 100%{opacity:.35;transform:scale(1);} }
+        /* Per-icon glow ring — dim by default, brightens only while the
+           dot is really dwelling on that exact icon (JS-toggled .is-lit,
+           driven from the same tick as the dot's own position). */
         .sb-ignite-ring {
           position: absolute;
           inset: -4px;
           border-radius: 1.1rem;
           border: 1.5px solid var(--bronze-bright, #D9A25C);
           pointer-events: none;
-          animation-duration: 7s;
-          animation-timing-function: ease-in-out;
-          animation-iteration-count: infinite;
+          opacity: 0;
+          transform: scale(1);
+          transition: opacity 250ms ease, transform 250ms ease;
+        }
+        .sb-ignite-ring.is-lit {
+          opacity: 0.9;
+          transform: scale(1.1);
+          box-shadow: 0 0 14px 2px rgba(217,162,92,0.6);
         }
       `}</style>
 
       {/* Connecting spine + traveling spark, sits behind the icon column */}
-      <div className="sb-rail" />
-      <div className="sb-spark" />
+      <div ref={railRef} className="sb-rail" />
+      <div ref={sparkRef} className="sb-spark" />
 
       {/* Logo */}
       <div
@@ -281,13 +369,15 @@ const PremiumSidebar = () => {
               {/* Layered "3D" button: base shadow layer + raised glass face,
                   idle-floating as a group so it feels animated at rest */}
               <div
+                ref={(el) => (itemRefs.current[idx] = el)}
                 className="sb-float-wrap relative w-14 h-14"
                 style={{ animationDelay: `${idx * 0.35}s` }}
               >
-                {/* Ignite ring — flashes when the traveling spark passes */}
+                {/* Glow ring — brightens only while the dot is actually
+                    dwelling on this exact icon */}
                 <div
+                  ref={(el) => (igniteRefs.current[idx] = el)}
                   className="sb-ignite-ring"
-                  style={{ animationName: `sb-ignite-${idx}` }}
                 />
 
                 {/* Rotating orbit glow ring — only on the active item */}

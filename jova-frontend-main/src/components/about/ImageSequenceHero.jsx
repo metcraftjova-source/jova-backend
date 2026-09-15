@@ -13,17 +13,44 @@ export default function ImageSequenceHero() {
   const textRef = useRef(null);
   const [videoReady, setVideoReady] = useState(false);
   const playhead = useRef({ t: 0 });
+  const blobUrlRef = useRef(null);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (video.readyState >= 1) {
-      setVideoReady(true);
-      return;
-    }
-    const onMeta = () => setVideoReady(true);
-    video.addEventListener('loadedmetadata', onMeta);
-    return () => video.removeEventListener('loadedmetadata', onMeta);
+    let cancelled = false;
+
+    // Fetch the whole file into memory once, then point the <video> at a
+    // local blob: URL. Without this, every scroll-driven `currentTime`
+    // seek below (fired on basically every animation frame while
+    // scrubbing) forces the browser to issue a fresh HTTP range request
+    // for the video bytes at that timestamp — and since the next frame
+    // immediately seeks again, each request gets aborted before it
+    // finishes. That's a request storm, not smooth scrubbing. Seeking
+    // into an in-memory blob is instant and needs no network at all.
+    fetch(aboutHeroVideoSrc)
+      .then((res) => res.blob())
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        blobUrlRef.current = url;
+        video.src = url;
+        video.addEventListener('loadedmetadata', () => setVideoReady(true), { once: true });
+        video.load();
+      })
+      .catch((err) => {
+        console.error('Failed to preload hero video, falling back to direct src', err);
+        video.src = aboutHeroVideoSrc;
+        video.addEventListener('loadedmetadata', () => setVideoReady(true), { once: true });
+      });
+
+    return () => {
+      cancelled = true;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
   }, []);
 
   const text2Ref = useRef(null);
@@ -123,7 +150,6 @@ export default function ImageSequenceHero() {
     <div ref={containerRef} className="relative w-full h-dvh bg-[#050B16] overflow-hidden">
       <video
         ref={videoRef}
-        src={aboutHeroVideoSrc}
         muted
         playsInline
         preload="auto"
