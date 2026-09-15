@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import nodemailer from 'nodemailer';
 import { google } from 'googleapis';
 import { connectDB } from './db.js';
 import Contact from './models/Contact.js';
@@ -59,9 +58,11 @@ const contactLimiter = rateLimit({
   message: { success: false, message: 'Too many requests. Please try again later.' },
 });
 
-// ---- Gmail OAuth2 mail transporter ----
-// Uses the Gmail API over HTTPS instead of raw SMTP — Render (and many
-// hosts) block outbound SMTP ports, but HTTPS always works.
+// ---- Gmail API (direct, no SMTP) ----
+// Render (and many hosts) block outbound SMTP ports entirely, so even
+// nodemailer's OAuth2 transport fails — it still opens an SMTP connection
+// under the hood. This calls the Gmail REST API over HTTPS instead, which
+// is never blocked.
 const OAUTH_PLAYGROUND_REDIRECT = 'https://developers.google.com/oauthplayground';
 
 const oauth2Client = new google.auth.OAuth2(
@@ -71,19 +72,42 @@ const oauth2Client = new google.auth.OAuth2(
 );
 oauth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
 
-const createTransporter = async () => {
-  const { token: accessToken } = await oauth2Client.getAccessToken();
+const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      type: 'OAuth2',
-      user: process.env.GMAIL_USER,
-      clientId: process.env.GMAIL_CLIENT_ID,
-      clientSecret: process.env.GMAIL_CLIENT_SECRET,
-      refreshToken: process.env.GMAIL_REFRESH_TOKEN,
-      accessToken,
-    },
+// Gmail's API expects a base64url-encoded raw RFC 2822 message, not a
+// { to, from, subject, html } object — this builds that message by hand.
+const buildRawMessage = ({ from, to, replyTo, subject, html }) => {
+  const messageParts = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Reply-To: ${replyTo}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+    '',
+    html,
+  ];
+  const message = messageParts.join('\n');
+
+  return Buffer.from(message)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+};
+
+const sendGmail = async ({ to, replyTo, subject, html }) => {
+  const raw = buildRawMessage({
+    from: `Jova Website <${process.env.GMAIL_USER}>`,
+    to,
+    replyTo,
+    subject,
+    html,
+  });
+
+  await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw },
   });
 };
 
@@ -123,11 +147,8 @@ app.post('/api/contact', contactLimiter, async (req, res) => {
     // Save the lead to MongoDB first, so we never lose it even if email sending fails
     const contactDoc = await Contact.create({ firstName, lastName, email, message });
 
-    const transporter = await createTransporter();
-
-    // Email sent TO the company inbox
-    await transporter.sendMail({
-      from: `"Jova Website" <${process.env.GMAIL_USER}>`,
+    // Email sent TO the company inbox, via the Gmail REST API over HTTPS
+    await sendGmail({
       to: CONTACT_MAIL,
       replyTo: email,
       subject: `New Contact Form Submission from ${firstName} ${lastName || ''}`.trim(),
