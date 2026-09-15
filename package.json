@@ -13,5 +13,6 @@
     "express-rate-limit": "^7.4.0",
     "mongoose": "^8.5.2",
     "nodemailer": "^6.9.14"
+    "googleapis": "^144.0.0"
   }
 }
