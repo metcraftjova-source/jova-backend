@@ -82,6 +82,15 @@ const contactSchema = new mongoose.Schema(
 );
 const Contact = mongoose.models.Contact || mongoose.model('Contact', contactSchema);
 
+// ---- Visit model: anonymous page-view ping (no IP, no cookies) ----
+// Auto-deleted after 180 days by the TTL index on createdAt.
+const visitSchema = new mongoose.Schema({
+  path: String,
+  referrer: String,
+  createdAt: { type: Date, default: Date.now, expires: 60 * 60 * 24 * 180 },
+});
+const Visit = mongoose.models.Visit || mongoose.model('Visit', visitSchema);
+
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5001;
@@ -127,6 +136,15 @@ const contactLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests. Please try again later.' },
+});
+
+// Visit pings: max 60 / 15 min / IP (silent - the site never shows an error for this)
+const visitLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => res.sendStatus(204),
 });
 
 // The form sends multipart/form-data (text fields + optional drawing file).
@@ -191,6 +209,20 @@ const clean = (v, max) => String(v ?? '').replace(/[\r\n]+/g, ' ').trim().slice(
 
 // ---- Routes ----
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// Anonymous visit ping from the frontend (see ScrollToTop in the frontend App.jsx)
+app.post('/api/visit', visitLimiter, async (req, res) => {
+  try {
+    const body = req.body || {};
+    await Visit.create({
+      path: clean(body.path, 200),
+      referrer: clean(body.referrer, 300),
+    });
+  } catch (err) {
+    console.error('Visit ping failed:', err.message);
+  }
+  return res.sendStatus(204);
+});
 
 // Protected listing endpoint - pass ?key=YOUR_ADMIN_KEY
 app.get('/api/contact', async (req, res) => {
